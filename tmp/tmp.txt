@@ -1,0 +1,56 @@
+?XDEBUG_SESSION_START=VSCODE
+
+========================
+
+systemctl  status eml-worker.service
+
+========================
+
+可以，但不推荐直接把 /root/.cache/ms-playwright 直接改成 www:www。要点与推荐措施：
+
+可行性：直接 chown 会让 www 用户能访问已有浏览器二进制，短期内能解决“找不到可执行文件”的错误：
+
+命令示例：
+sudo chown -R www:www /root/.cache/ms-playwright
+sudo chmod -R u+rwX,g+rwX,o-rwx /root/.cache/ms-playwright
+sudo systemctl restart eml-worker.service
+
+
+
+要确保目录和浏览器二进制对 www 有可执行权限（x）。
+风险与问题：
+
+该目录属于 root 家目录，改动会把 root 的缓存转给非 root，破坏主机目录隔离和管理惯例。
+将 root 的缓存暴露给非 root 用户可能带来安全/审计问题；未来 root 用户再运行 Playwright 可能遇权限异常。
+某些文件可能包含 root 级别元数据或锁，直接 chown 有时会留下问题。
+更安全的替代（推荐，按优先级）：
+
+在共享位置建立专用缓存并切换路径（推荐）
+
+sudo mkdir -p /var/lib/ms-playwright
+sudo rsync -a /root/.cache/ms-playwright/ /var/lib/ms-playwright/
+sudo chown -R www:www /var/lib/ms-playwright
+# 修改 systemd 环境为 /var/lib/ms-playwright，然后重载并重启
+sudo sed -i 's|PLAYWRIGHT_BROWSERS_PATH=.*|PLAYWRIGHT_BROWSERS_PATH=/var/lib/ms-playwright|' /etc/systemd/system/eml-worker.service
+sudo systemctl daemon-reload
+sudo systemctl restart eml-worker.service
+
+
+最佳实践：以 www 用户安装 Playwright 浏览器（clean install）
+
+sudo -u www python3 -m pip install --user playwright   # 如需
+sudo -u www python3 -m playwright install chromium
+====================
+
+# 2. 改 owner 给 www
+sudo chown -R www:www /home/www/.cache/ms-playwright
+
+# 3. 修改 systemd 环境（可选，推荐设置为 /home/www/.cache/ms-playwright）
+sudo systemctl edit --full eml-worker.service
+# 添加/修改：
+# Environment="PLAYWRIGHT_BROWSERS_PATH=/home/www/.cache/ms-playwright"
+sudo systemctl daemon-reload
+sudo systemctl restart eml-worker.service
+
+
+
